@@ -1,0 +1,32 @@
+name: Reconstruct verified APK
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  reconstruct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TARGET_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Reconstruct the already signed package and verify every byte
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$TARGET_TAG" = "v0.40.0"
+          test "$(gh release view "$TARGET_TAG" --json isDraft --jq .isDraft)" = true
+          mkdir base upgrade
+          gh release download v0.39.0 --pattern homewatch.apk --dir base
+          gh release download "$TARGET_TAG" --pattern upgrade-patch.zip --dir upgrade
+          python -c "import zipfile; z=zipfile.ZipFile('upgrade/upgrade-patch.zip'); open('reconstruct.py','wb').write(z.read('reconstruct.py'))"
+          python reconstruct.py base/homewatch.apk upgrade/upgrade-patch.zip homewatch.apk
+          test "$(sha256sum homewatch.apk | cut -d ' ' -f 1)" = "9deb19afcadf2cb794f7c2db3ba262112af4f9af532203a5acbd3efe29261115"
+          test "$(gh release view "$TARGET_TAG" --json isDraft --jq .isDraft)" = true
+          gh release upload "$TARGET_TAG" homewatch.apk --clobber
